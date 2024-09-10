@@ -785,8 +785,8 @@ impl PosixRawReader {
             if let Err(err) = select::select(None, Some(&mut readfds), None, None, None) {
                 if err == Errno::EINTR && self.tty_in.get_ref().sigwinch()? {
                     return Err(ReadlineError::WindowResized);
-                } else if err == Errno::EINTR  {  //&& self.tty_in.get_ref().sigint()? {
-                    return Err(ReadlineError::Interrupted);
+                // } else if err == Errno::EINTR  {  //&& self.tty_in.get_ref().sigint()? {
+                //     return Err(ReadlineError::Interrupted);
                 } else if err != Errno::EINTR {
                     return Err(err.into());
                 } else {
