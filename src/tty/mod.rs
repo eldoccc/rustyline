@@ -1,5 +1,6 @@
 //! This module implements and describes common TTY methods & traits
 
+use nix::sys::signal;
 use unicode_width::UnicodeWidthStr;
 
 use crate::config::{Behavior, BellStyle, ColorMode, Config};
@@ -19,6 +20,8 @@ pub trait RawMode: Sized {
 pub enum Event {
     KeyPress(KeyEvent),
     ExternalPrint(String),
+    #[cfg(unix)]
+    Signal(i32),
 }
 
 /// Translate bytes read from stdin to keys.
@@ -259,6 +262,9 @@ pub trait Term {
     fn create_external_printer(&mut self) -> Result<Self::ExternalPrinter>;
     /// Change cursor visibility
     fn set_cursor_visibility(&mut self, visible: bool) -> Result<Option<Self::CursorGuard>>;
+    
+    #[cfg(unix)]
+    fn listen_to_signal(&mut self, signal: i32) -> Result<()>;
 }
 
 // If on Windows platform import Windows TTY module

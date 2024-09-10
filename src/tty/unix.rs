@@ -12,7 +12,7 @@ use std::os::unix::net::UnixStream;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, SyncSender};
 use std::sync::{Arc, Mutex};
-
+use libc::c_int;
 use log::{debug, warn};
 use nix::errno::Errno;
 use nix::poll::{self, PollFlags, PollTimeout};
@@ -136,7 +136,8 @@ impl RawMode for PosixMode {
 struct TtyIn {
     fd: RawFd,
     sigwinch_pipe: Option<RawFd>,
-    sigint_pipe: Option<RawFd>,
+    // sigint_pipe: Option<RawFd>,
+    signal_pipe : Option<RawFd>,
 }
 
 impl Read for TtyIn {
@@ -156,7 +157,7 @@ impl Read for TtyIn {
                         ErrorKind::Interrupted,
                         error::WindowResizedError,
                     ));
-                } else if error.kind() != ErrorKind::Interrupted && self.sigint()? {
+                } else if error.kind() != ErrorKind::Interrupted  { //&& self.sigint()? {
                     return Err(error);
                 }
             } else {
@@ -176,15 +177,24 @@ impl TtyIn {
             Ok(false)
         }
     }
-    
-    /// Check if a SIGINT signal has been received
-    fn sigint(&self) -> nix::Result<bool> {
-        if let Some(pipe) = self.sigint_pipe {
+    //
+    // /// Check if a SIGINT signal has been received
+    // fn sigint(&self) -> nix::Result<bool> {
+    //     if let Some(pipe) = self.sigint_pipe {
+    //         read_pipe(pipe)
+    //     } else {
+    //         Ok(false)
+    //     }
+    // }
+
+    fn signal(&self) -> nix::Result<bool> {
+        if let Some(pipe) = self.signal_pipe {
             read_pipe(pipe)
         } else {
             Ok(false)
         }
     }
+
 }
 
 fn read_pipe(pipe : RawFd) -> nix::Result<bool> {
@@ -254,13 +264,14 @@ impl PosixRawReader {
     fn new(
         fd: RawFd,
         sigwinch_pipe: Option<RawFd>,
-        sigint_pipe: Option<RawFd>,
+        // sigint_pipe: Option<RawFd>,
+        signal_pipe : Option<RawFd>,
         buffer: Option<PosixBuffer>,
         config: &Config,
         key_map: PosixKeyMap,
         pipe_reader: Option<PipeReader>,
     ) -> Self {
-        let inner = TtyIn { fd, sigwinch_pipe, sigint_pipe };
+        let inner = TtyIn { fd, sigwinch_pipe, signal_pipe };
         #[cfg(any(not(feature = "buffer-redux"), test))]
         let (tty_in, _) = (BufReader::with_capacity(1024, inner), buffer);
         #[cfg(all(feature = "buffer-redux", not(test)))]
@@ -730,8 +741,8 @@ impl PosixRawReader {
             Err(Errno::EINTR) => {
                 if self.tty_in.get_ref().sigwinch()? {
                     Err(ReadlineError::WindowResized)
-                }else if self.tty_in.get_ref().sigint()? {
-                    Err(ReadlineError::Interrupted)
+                // }else if self.tty_in.get_ref().sigint()? {
+                //     Err(ReadlineError::Interrupted)
             } else {
                     Ok(0) // Ignore EINTR while polling
                 }
@@ -752,10 +763,15 @@ impl PosixRawReader {
             .as_ref()
             .map(|pr| pr.lock().unwrap().0.as_raw_fd())
             .map(|fd| unsafe { BorrowedFd::borrow_raw(fd) });
-        let sigint_pipe = self
+        // let sigint_pipe = self
+        //     .tty_in
+        //     .get_ref()
+        //     .sigint_pipe
+        //     .map(|fd| unsafe { BorrowedFd::borrow_raw(fd) });
+        let signal_pipe = self
             .tty_in
             .get_ref()
-            .sigint_pipe
+            .signal_pipe
             .map(|fd| unsafe { BorrowedFd::borrow_raw(fd) });
         loop {
             let mut readfds = FdSet::new();
@@ -766,13 +782,16 @@ impl PosixRawReader {
             if let Some(pipe_reader) = pipe_reader {
                 readfds.insert(pipe_reader);
             }
-            if let Some(sigint_pipe) = sigint_pipe {
-                readfds.insert(sigint_pipe);
+            // if let Some(sigint_pipe) = sigint_pipe {
+            //     readfds.insert(sigint_pipe);
+            // }
+            if let Some(signal_pipe) = signal_pipe {
+                readfds.insert(signal_pipe);
             }
             if let Err(err) = select::select(None, Some(&mut readfds), None, None, None) {
                 if err == Errno::EINTR && self.tty_in.get_ref().sigwinch()? {
                     return Err(ReadlineError::WindowResized);
-                } else if err == Errno::EINTR && self.tty_in.get_ref().sigint()? {
+                } else if err == Errno::EINTR  {  //&& self.tty_in.get_ref().sigint()? {
                     return Err(ReadlineError::Interrupted);
                 } else if err != Errno::EINTR {
                     return Err(err.into());
@@ -780,12 +799,15 @@ impl PosixRawReader {
                     continue;
                 }
             };
-            if sigwinch_pipe.map_or(false, |fd| readfds.contains(fd)) {
+            if signal_pipe.map_or(false, |fd| readfds.contains(fd)) {
+                self.tty_in.get_ref().signal()?;
+                return Ok(Event::Signal(signal_pipe.unwrap().as_raw_fd()));
+            }else if sigwinch_pipe.map_or(false, |fd| readfds.contains(fd)) {
                 self.tty_in.get_ref().sigwinch()?;
                 return Err(ReadlineError::WindowResized);
-            } else if sigint_pipe.map_or(false, |fd| readfds.contains(fd)) {
-                self.tty_in.get_ref().sigint()?;
-                return Err(ReadlineError::Interrupted);
+            // } else if sigint_pipe.map_or(false, |fd| readfds.contains(fd)) {
+            //     self.tty_in.get_ref().sigint()?;
+            //     return Err(ReadlineError::Interrupted);
             } else if readfds.contains(tty_in) {
                 // prefer user input over external print
                 return self.next_key(single_esc_abort).map(Event::KeyPress);
@@ -1273,7 +1295,7 @@ impl SigWinCh {
         unsafe { SIGWINCH_PIPE = -1 };
         Ok(())
     }
-
+    
     #[cfg(feature = "signal-hook")]
     fn uninstall_sigwinch_handler(self) -> Result<()> {
         signal_hook::low_level::unregister(self.id);
@@ -1281,17 +1303,82 @@ impl SigWinCh {
         Ok(())
     }
 }
+//
+// #[cfg(not(feature = "signal-hook"))]
+// static mut SIGINT_PIPE: RawFd = -1;
+//
+// #[cfg(not(feature = "signal-hook"))]
+// extern "C" fn sigint_handler(_: libc::c_int) {
+//     let _ = unsafe { write(BorrowedFd::borrow_raw(SIGINT_PIPE), b"s") };
+// }
+//
+// #[derive(Clone, Debug)]
+// struct SigInt {
+//     pipe: RawFd,
+//     #[cfg(not(feature = "signal-hook"))]
+//     original: nix::sys::signal::SigAction,
+//     #[cfg(feature = "signal-hook")]
+//     id: signal_hook::SigId,
+// }
+//
+// impl SigInt {
+//     #[cfg(not(feature = "signal-hook"))]
+//     fn install_sigint_handler() -> Result<Self> {
+//         use nix::sys::signal;
+//         let (pipe, pipe_write) = UnixStream::pair()?;
+//         pipe.set_nonblocking(true)?;
+//         unsafe { SIGINT_PIPE = pipe_write.into_raw_fd() };
+//         let sigint = signal::SigAction::new(
+//             signal::SigHandler::Handler(sigint_handler),
+//             signal::SaFlags::empty(),
+//             signal::SigSet::empty(),
+//         );
+//         let original = unsafe { signal::sigaction(signal::SIGINT, &sigint)? };
+//         Ok(Self {
+//             pipe: pipe.into_raw_fd(),
+//             original,
+//         })
+//     }
+//
+//     #[cfg(feature = "signal-hook")]
+//     fn install_sigint_handler() -> Result<Self> {
+//         let (pipe, pipe_write) = UnixStream::pair()?;
+//         pipe.set_nonblocking(true)?;
+//         let id = signal_hook::low_level::pipe::register(libc::SIGINT, pipe_write)?;
+//         Ok(Self {
+//             pipe: pipe.into_raw_fd(),
+//             id,
+//         })
+//     }
+//
+//     #[cfg(not(feature = "signal-hook"))]
+//     fn uninstall_sigint_handler(self) -> Result<()> {
+//         use nix::sys::signal;
+//         let _ = unsafe { signal::sigaction(signal::SIGINT, &self.original)? };
+//         close(self.pipe)?;
+//         unsafe { close(SIGINT_PIPE)? };
+//         unsafe { SIGINT_PIPE = -1 };
+//         Ok(())
+//     }
+//
+//     #[cfg(feature = "signal-hook")]
+//     fn uninstall_sigint_handler(self) -> Result<()> {
+//         signal_hook::low_level::unregister(self.id);
+//         close(self.pipe)?;
+//         Ok(())
+//     }
+// }
 
 #[cfg(not(feature = "signal-hook"))]
-static mut SIGINT_PIPE: RawFd = -1;
-
+static mut SIG_PIPE: RawFd = -1;
 #[cfg(not(feature = "signal-hook"))]
-extern "C" fn sigint_handler(_: libc::c_int) {
-    let _ = unsafe { write(BorrowedFd::borrow_raw(SIGINT_PIPE), b"s") };
+extern "C" fn sig_handler(_: libc::c_int) {
+    let _ = unsafe { write(BorrowedFd::borrow_raw(SIG_PIPE), b"s") };
 }
 
-#[derive(Clone, Debug)]
-struct SigInt {
+//general signal type
+#[derive(Debug,Clone)]
+pub struct Signal{
     pipe: RawFd,
     #[cfg(not(feature = "signal-hook"))]
     original: nix::sys::signal::SigAction,
@@ -1299,19 +1386,19 @@ struct SigInt {
     id: signal_hook::SigId,
 }
 
-impl SigInt {
+impl Signal{
     #[cfg(not(feature = "signal-hook"))]
-    fn install_sigint_handler() -> Result<Self> {
+    fn install_sig_handler(signal : signal::Signal) -> Result<Self> {
         use nix::sys::signal;
         let (pipe, pipe_write) = UnixStream::pair()?;
         pipe.set_nonblocking(true)?;
-        unsafe { SIGINT_PIPE = pipe_write.into_raw_fd() };
-        let sigint = signal::SigAction::new(
-            signal::SigHandler::Handler(sigint_handler),
+        unsafe { PIPE = pipe_write.into_raw_fd() };
+        let sig = signal::SigAction::new(
+            signal::SigHandler::Handler(sig_handler),
             signal::SaFlags::empty(),
             signal::SigSet::empty(),
         );
-        let original = unsafe { signal::sigaction(signal::SIGINT, &sigint)? };
+        let original = unsafe { signal::sigaction(signal, &sig)? };
         Ok(Self {
             pipe: pipe.into_raw_fd(),
             original,
@@ -1319,10 +1406,10 @@ impl SigInt {
     }
 
     #[cfg(feature = "signal-hook")]
-    fn install_sigint_handler() -> Result<Self> {
+    fn install_sig_handler(signal : c_int) -> Result<Self> {
         let (pipe, pipe_write) = UnixStream::pair()?;
         pipe.set_nonblocking(true)?;
-        let id = signal_hook::low_level::pipe::register(libc::SIGINT, pipe_write)?;
+        let id = signal_hook::low_level::pipe::register(signal, pipe_write)?;
         Ok(Self {
             pipe: pipe.into_raw_fd(),
             id,
@@ -1330,17 +1417,17 @@ impl SigInt {
     }
 
     #[cfg(not(feature = "signal-hook"))]
-    fn uninstall_sigint_handler(self) -> Result<()> {
+    fn uninstall_sig_handler(self,signal: signal::Signal) -> Result<()> {
         use nix::sys::signal;
-        let _ = unsafe { signal::sigaction(signal::SIGINT, &self.original)? };
+        let _ = unsafe { signal::sigaction(signal &self.original)? };
         close(self.pipe)?;
-        unsafe { close(SIGINT_PIPE)? };
-        unsafe { SIGINT_PIPE = -1 };
+        unsafe { close(SIG_PIPE)? };
+        unsafe { SIG_PIPE = -1 };
         Ok(())
     }
 
     #[cfg(feature = "signal-hook")]
-    fn uninstall_sigint_handler(self) -> Result<()> {
+    fn uninstall_sig_handler(self) -> Result<()> {
         signal_hook::low_level::unregister(self.id);
         close(self.pipe)?;
         Ok(())
@@ -1370,8 +1457,8 @@ pub struct PosixTerminal {
     pipe_reader: Option<PipeReader>,
     // external print writer
     pipe_writer: Option<PipeWriter>,
-    sigwinch: Option<SigWinCh>,
-    sigint : Option<SigInt>,
+    sigwinch: Option<Signal>,
+    signal: Option<Signal>,
     enable_signals: bool,
 }
 
@@ -1430,15 +1517,21 @@ impl Term for PosixTerminal {
         let unsupported = is_unsupported_term();
         #[allow(unused_variables)]
         let sigwinch = if !unsupported && is_in_a_tty && is_out_a_tty {
-            Some(SigWinCh::install_sigwinch_handler()?)
+            //signal::Signal::SIGWINCH = 28
+            Some(Signal::install_sig_handler(28)?)
         } else {
             None
         };
-        let sigint = if !unsupported && is_in_a_tty && is_out_a_tty {
-            Some(SigInt::install_sigint_handler()?)
-        } else {
-            None
-        };
+        // let sigint = if !unsupported && is_in_a_tty && is_out_a_tty {
+        //     Some(SigInt::install_sigint_handler()?)
+        // } else {
+        //     None
+        // };
+        // let signal = if !unsupported && is_in_a_tty && is_out_a_tty {
+        //     Some(Signal::install_sig_handler(signal)?)
+        // } else {
+        //     None
+        // };
         Ok(Self {
             unsupported,
             tty_in,
@@ -1454,7 +1547,8 @@ impl Term for PosixTerminal {
             pipe_reader: None,
             pipe_writer: None,
             sigwinch,
-            sigint,
+            // sigint,
+            signal : None,
             enable_signals,
         })
     }
@@ -1522,7 +1616,7 @@ impl Term for PosixTerminal {
         PosixRawReader::new(
             self.tty_in,
             self.sigwinch.as_ref().map(|s| s.pipe),
-            self.sigint.as_ref().map(|s| s.pipe),
+            self.signal.as_ref().map(|s| s.pipe),
             buffer,
             config,
             key_map,
@@ -1576,6 +1670,14 @@ impl Term for PosixTerminal {
             Ok(None)
         }
     }
+
+    fn listen_to_signal(&mut self, signal: c_int) -> Result<()> {
+        if !self.is_in_a_tty || !self.is_out_a_tty {
+            return Ok(());
+        }
+        self.signal.replace(Signal::install_sig_handler(signal)?);
+        Ok(())
+    }
 }
 
 #[allow(unused_must_use)]
@@ -1588,8 +1690,11 @@ impl Drop for PosixTerminal {
         if let Some(sigwinch) = self.sigwinch.take() {
             sigwinch.uninstall_sigwinch_handler();
         }
-        if let Some(sigint) = self.sigint.take() {
-            sigint.uninstall_sigint_handler();
+        // if let Some(sigint) = self.sigint.take() {
+        //     sigint.uninstall_sigint_handler();
+        // }
+        if let Some(sig) = self.signal.take() {
+            sig.uninstall_sig_handler();
         }
     }
 }
