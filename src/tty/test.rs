@@ -241,6 +241,10 @@ impl Term for DummyTerminal {
     fn writeln(&self) -> Result<()> {
         Ok(())
     }
+
+    fn listen_to_signal(&mut self, signal: i32) -> Result<()> {
+        unimplemented!("signal: {}", signal)
+    }
 }
 
 #[cfg(unix)]

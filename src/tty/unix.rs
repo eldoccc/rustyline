@@ -765,11 +765,6 @@ impl PosixRawReader {
             .as_ref()
             .map(|pr| pr.lock().unwrap().0.as_raw_fd())
             .map(|fd| unsafe { BorrowedFd::borrow_raw(fd) });
-        // let sigint_pipe = self
-        //     .tty_in
-        //     .get_ref()
-        //     .sigint_pipe
-        //     .map(|fd| unsafe { BorrowedFd::borrow_raw(fd) });
         let signal_pipe = self
             .tty_in
             .get_ref()
@@ -784,9 +779,6 @@ impl PosixRawReader {
             if let Some(pipe_reader) = pipe_reader {
                 readfds.insert(pipe_reader);
             }
-            // if let Some(sigint_pipe) = sigint_pipe {
-            //     readfds.insert(sigint_pipe);
-            // }
             if let Some(signal_pipe) = signal_pipe {
                 readfds.insert(signal_pipe);
             }
@@ -807,9 +799,6 @@ impl PosixRawReader {
             }else if sigwinch_pipe.map_or(false, |fd| readfds.contains(fd)) {
                 self.tty_in.get_ref().sigwinch()?;
                 return Err(ReadlineError::WindowResized);
-            // } else if sigint_pipe.map_or(false, |fd| readfds.contains(fd)) {
-            //     self.tty_in.get_ref().sigint()?;
-            //     return Err(ReadlineError::Interrupted);
             } else if readfds.contains(tty_in) {
                 // prefer user input over external print
                 return self.next_key(single_esc_abort).map(Event::KeyPress);
