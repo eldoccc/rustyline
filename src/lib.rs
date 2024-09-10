@@ -922,6 +922,10 @@ impl<H: Helper, I: History> Editor<H, I> {
     pub fn create_external_printer(&mut self) -> Result<<Terminal as Term>::ExternalPrinter> {
         self.term.create_external_printer()
     }
+    
+    pub fn listen_to_signal(&mut self, signal : i32) -> Result<()> {
+        self.term.listen_to_signal(signal)
+    }
 
     /// Change cursor visibility
     pub fn set_cursor_visibility(
