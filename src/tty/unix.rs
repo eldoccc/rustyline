@@ -179,15 +179,6 @@ impl TtyIn {
             Ok(false)
         }
     }
-    //
-    // /// Check if a SIGINT signal has been received
-    // fn sigint(&self) -> nix::Result<bool> {
-    //     if let Some(pipe) = self.sigint_pipe {
-    //         read_pipe(pipe)
-    //     } else {
-    //         Ok(false)
-    //     }
-    // }
 
     fn signal(&self) -> nix::Result<bool> {
         if let Some(pipe) = self.signal_pipe {
@@ -743,8 +734,6 @@ impl PosixRawReader {
             Err(Errno::EINTR) => {
                 if self.tty_in.get_ref().sigwinch()? {
                     Err(ReadlineError::WindowResized)
-                // }else if self.tty_in.get_ref().sigint()? {
-                //     Err(ReadlineError::Interrupted)
             } else {
                     Ok(0) // Ignore EINTR while polling
                 }
@@ -785,8 +774,6 @@ impl PosixRawReader {
             if let Err(err) = select::select(None, Some(&mut readfds), None, None, None) {
                 if err == Errno::EINTR && self.tty_in.get_ref().sigwinch()? {
                     return Err(ReadlineError::WindowResized);
-                // } else if err == Errno::EINTR  {  //&& self.tty_in.get_ref().sigint()? {
-                //     return Err(ReadlineError::Interrupted);
                 } else if err != Errno::EINTR {
                     return Err(err.into());
                 } else {
@@ -1294,71 +1281,6 @@ impl SigWinCh {
         Ok(())
     }
 }
-//
-// #[cfg(not(feature = "signal-hook"))]
-// static mut SIGINT_PIPE: RawFd = -1;
-//
-// #[cfg(not(feature = "signal-hook"))]
-// extern "C" fn sigint_handler(_: libc::c_int) {
-//     let _ = unsafe { write(BorrowedFd::borrow_raw(SIGINT_PIPE), b"s") };
-// }
-//
-// #[derive(Clone, Debug)]
-// struct SigInt {
-//     pipe: RawFd,
-//     #[cfg(not(feature = "signal-hook"))]
-//     original: nix::sys::signal::SigAction,
-//     #[cfg(feature = "signal-hook")]
-//     id: signal_hook::SigId,
-// }
-//
-// impl SigInt {
-//     #[cfg(not(feature = "signal-hook"))]
-//     fn install_sigint_handler() -> Result<Self> {
-//         use nix::sys::signal;
-//         let (pipe, pipe_write) = UnixStream::pair()?;
-//         pipe.set_nonblocking(true)?;
-//         unsafe { SIGINT_PIPE = pipe_write.into_raw_fd() };
-//         let sigint = signal::SigAction::new(
-//             signal::SigHandler::Handler(sigint_handler),
-//             signal::SaFlags::empty(),
-//             signal::SigSet::empty(),
-//         );
-//         let original = unsafe { signal::sigaction(signal::SIGINT, &sigint)? };
-//         Ok(Self {
-//             pipe: pipe.into_raw_fd(),
-//             original,
-//         })
-//     }
-//
-//     #[cfg(feature = "signal-hook")]
-//     fn install_sigint_handler() -> Result<Self> {
-//         let (pipe, pipe_write) = UnixStream::pair()?;
-//         pipe.set_nonblocking(true)?;
-//         let id = signal_hook::low_level::pipe::register(libc::SIGINT, pipe_write)?;
-//         Ok(Self {
-//             pipe: pipe.into_raw_fd(),
-//             id,
-//         })
-//     }
-//
-//     #[cfg(not(feature = "signal-hook"))]
-//     fn uninstall_sigint_handler(self) -> Result<()> {
-//         use nix::sys::signal;
-//         let _ = unsafe { signal::sigaction(signal::SIGINT, &self.original)? };
-//         close(self.pipe)?;
-//         unsafe { close(SIGINT_PIPE)? };
-//         unsafe { SIGINT_PIPE = -1 };
-//         Ok(())
-//     }
-//
-//     #[cfg(feature = "signal-hook")]
-//     fn uninstall_sigint_handler(self) -> Result<()> {
-//         signal_hook::low_level::unregister(self.id);
-//         close(self.pipe)?;
-//         Ok(())
-//     }
-// }
 
 #[cfg(not(feature = "signal-hook"))]
 static mut SIG_PIPE: RawFd = -1;

@@ -441,7 +441,8 @@ impl<'b> InputState<'b> {
                     tty::Event::ExternalPrint(msg) => {
                         wrt.external_print(msg)?;
                     }
-                    tty::Event::Signal(_) => {
+                    tty::Event::Signal(_sig) => {
+                        //fixme: match on signal enum ?
                         return Ok(Cmd::Interrupt);
                     }
                 }
