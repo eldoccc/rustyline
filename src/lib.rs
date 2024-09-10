@@ -923,6 +923,7 @@ impl<H: Helper, I: History> Editor<H, I> {
         self.term.create_external_printer()
     }
     
+    /// Listen to a signal
     pub fn listen_to_signal(&mut self, signal : i32) -> Result<()> {
         self.term.listen_to_signal(signal)
     }

@@ -32,6 +32,8 @@ use crate::keys::{KeyCode as K, KeyEvent, KeyEvent as E, Modifiers as M};
 use crate::layout::{Layout, Position};
 use crate::line_buffer::LineBuffer;
 use crate::{error, Cmd, ReadlineError, Result};
+#[cfg(not(feature = "signal-hook"))]
+use nix::sys::signal;
 
 /// Unsupported Terminals that don't support RAW mode
 const UNSUPPORTED_TERM: [&str; 3] = ["dumb", "cons25", "emacs"];
@@ -1382,26 +1384,29 @@ pub struct Signal{
     pipe: RawFd,
     #[cfg(not(feature = "signal-hook"))]
     original: nix::sys::signal::SigAction,
+    #[cfg(not(feature = "signal-hook"))]
+    signal: signal::Signal,
     #[cfg(feature = "signal-hook")]
     id: signal_hook::SigId,
 }
 
 impl Signal{
     #[cfg(not(feature = "signal-hook"))]
-    fn install_sig_handler(signal : signal::Signal) -> Result<Self> {
-        use nix::sys::signal;
+    fn install_sig_handler(signal : i32) -> Result<Self> {
         let (pipe, pipe_write) = UnixStream::pair()?;
         pipe.set_nonblocking(true)?;
-        unsafe { PIPE = pipe_write.into_raw_fd() };
+        unsafe { SIG_PIPE = pipe_write.into_raw_fd() };
         let sig = signal::SigAction::new(
             signal::SigHandler::Handler(sig_handler),
             signal::SaFlags::empty(),
             signal::SigSet::empty(),
         );
+        let signal = signal::Signal::iterator().enumerate().find(|(i,_)| i+1 == signal as usize).unwrap().1;
         let original = unsafe { signal::sigaction(signal, &sig)? };
         Ok(Self {
             pipe: pipe.into_raw_fd(),
             original,
+            signal,
         })
     }
 
@@ -1417,9 +1422,8 @@ impl Signal{
     }
 
     #[cfg(not(feature = "signal-hook"))]
-    fn uninstall_sig_handler(self,signal: signal::Signal) -> Result<()> {
-        use nix::sys::signal;
-        let _ = unsafe { signal::sigaction(signal &self.original)? };
+    fn uninstall_sig_handler(self) -> Result<()> {
+        let _ = unsafe { signal::sigaction(self.signal, &self.original)? };
         close(self.pipe)?;
         unsafe { close(SIG_PIPE)? };
         unsafe { SIG_PIPE = -1 };
@@ -1457,7 +1461,7 @@ pub struct PosixTerminal {
     pipe_reader: Option<PipeReader>,
     // external print writer
     pipe_writer: Option<PipeWriter>,
-    sigwinch: Option<Signal>,
+    sigwinch: Option<SigWinCh>,
     signal: Option<Signal>,
     enable_signals: bool,
 }
@@ -1517,8 +1521,7 @@ impl Term for PosixTerminal {
         let unsupported = is_unsupported_term();
         #[allow(unused_variables)]
         let sigwinch = if !unsupported && is_in_a_tty && is_out_a_tty {
-            //signal::Signal::SIGWINCH = 28
-            Some(Signal::install_sig_handler(28)?)
+            Some(SigWinCh::install_sigwinch_handler()?)
         } else {
             None
         };

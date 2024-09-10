@@ -441,6 +441,9 @@ impl<'b> InputState<'b> {
                     tty::Event::ExternalPrint(msg) => {
                         wrt.external_print(msg)?;
                     }
+                    tty::Event::Signal(_) => {
+                        return Ok(Cmd::Interrupt);
+                    }
                 }
             }
         }

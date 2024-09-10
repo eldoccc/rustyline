@@ -1,6 +1,5 @@
 //! This module implements and describes common TTY methods & traits
 
-use nix::sys::signal;
 use unicode_width::UnicodeWidthStr;
 
 use crate::config::{Behavior, BellStyle, ColorMode, Config};
