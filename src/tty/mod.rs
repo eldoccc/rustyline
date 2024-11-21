@@ -153,6 +153,8 @@ fn width(s: &str, esc_seq: &mut u8) -> usize {
 pub trait ExternalPrinter {
     /// Print message to stdout
     fn print(&mut self, msg: String) -> Result<()>;
+    /// Emulate key press
+    fn emulate_key_press(&mut self, key: KeyEvent) -> Result<()>;
 }
 
 /// Terminal contract

@@ -1,5 +1,7 @@
 //! Key constants
 
+use std::fmt::{Display, Formatter};
+
 /// Input key pressed and modifiers
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct KeyEvent(pub KeyCode, pub Modifiers);
@@ -110,6 +112,13 @@ impl KeyEvent {
             E(K::Tab, m) if m.contains(M::SHIFT) => E(K::BackTab, m ^ M::SHIFT),
             _ => e,
         }
+    }
+}
+
+impl Display for KeyEvent {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        let KeyEvent(code, mods) = self;
+        write!(f, "{:?} {:?}", code, mods)
     }
 }
 

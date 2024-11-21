@@ -1506,6 +1506,18 @@ impl super::ExternalPrinter for ExternalPrinter {
         }
         Ok(())
     }
+
+    fn emulate_key_press(&mut self, key: E) -> Result<()> {
+        if !self.raw_mode.load(Ordering::SeqCst) {
+            return Ok(());
+        }
+        let mut writer = self.writer.0.lock().unwrap();
+        write_all(self.tty_out, "\x1b[")?;
+        write_all(self.tty_out, key.to_string().as_str())?;
+        writer.write_all(b"~")?;
+        writer.flush()?;
+        Ok(())
+    }
 }
 
 #[cfg(not(test))]
