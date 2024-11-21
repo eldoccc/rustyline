@@ -1510,12 +1510,15 @@ impl super::ExternalPrinter for ExternalPrinter {
     fn emulate_key_press(&mut self, key: E) -> Result<()> {
         if !self.raw_mode.load(Ordering::SeqCst) {
             return Ok(());
+        } else if let Ok(mut writer) = self.writer.0.lock() {
+            self.writer.1.send(key.to_string()).map_err(|_| io::Error::from(ErrorKind::Other))?;
+            write_all(self.tty_out, "\x1b[")?;
+            write_all(self.tty_out, key.to_string().as_str())?;
+            writer.write_all(b"~")?;
+            writer.flush()?;
+        }else {
+            return Err(io::Error::from(ErrorKind::Other).into());
         }
-        let mut writer = self.writer.0.lock().unwrap();
-        write_all(self.tty_out, "\x1b[")?;
-        write_all(self.tty_out, key.to_string().as_str())?;
-        writer.write_all(b"~")?;
-        writer.flush()?;
         Ok(())
     }
 }
