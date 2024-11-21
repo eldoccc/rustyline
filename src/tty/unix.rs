@@ -43,7 +43,6 @@ const BRACKETED_PASTE_OFF: &str = "\x1b[?2004l";
 
 nix::ioctl_read_bad!(win_size, libc::TIOCGWINSZ, libc::winsize);
 
-#[allow(clippy::useless_conversion)]
 fn get_win_size(fd: RawFd) -> (usize, usize) {
     use std::mem::zeroed;
 
@@ -163,7 +162,7 @@ impl Read for TtyIn {
                     return Err(error);
                 }
             } else {
-                #[allow(clippy::cast_sign_loss)]
+                #[expect(clippy::cast_sign_loss)]
                 return Ok(res as usize);
             }
         }
@@ -397,7 +396,7 @@ impl PosixRawReader {
     }
 
     /// Handle \E[ <seq2:digit> escape sequences
-    #[allow(clippy::cognitive_complexity)]
+    #[expect(clippy::cognitive_complexity)]
     fn extended_escape(&mut self, seq2: char) -> Result<KeyEvent> {
         let seq3 = self.next_char()?;
         if seq3 == '~' {
@@ -914,7 +913,7 @@ impl Receiver for Utf8 {
         self.valid = true;
     }
 
-    /// Called when an invalid_sequence is detected
+    /// Called when an invalid sequence is detected
     fn invalid_sequence(&mut self) {
         self.c = None;
         self.valid = false;
@@ -1430,7 +1429,6 @@ impl Term for PosixTerminal {
                 )
             };
         let unsupported = is_unsupported_term();
-        #[allow(unused_variables)]
         let sigwinch = if !unsupported && is_in_a_tty && is_out_a_tty {
             Some(SigWinCh::install_sigwinch_handler()?)
         } else {
@@ -1594,7 +1592,7 @@ impl Term for PosixTerminal {
     }
 }
 
-#[allow(unused_must_use)]
+#[expect(unused_must_use)]
 impl Drop for PosixTerminal {
     fn drop(&mut self) {
         if self.close_on_drop {
