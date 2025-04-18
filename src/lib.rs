@@ -755,7 +755,7 @@ impl<H: Helper, I: History> Editor<H, I> {
                 }
             }
 
-            #[cfg(unix)]
+            #[cfg(all(unix,not(feature= "stream-terminal")))]
             if cmd == Cmd::Suspend {
                 debug!(target: "rustyline", "SIGTSTP");
                 original_mode.disable_raw_mode()?;

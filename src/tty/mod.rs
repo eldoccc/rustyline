@@ -39,7 +39,10 @@ pub trait RawReader {
     /// Check if `key` is bound to a peculiar command
     fn find_binding(&self, key: &KeyEvent) -> Option<Cmd>;
     /// Backup type ahead
+    #[cfg(not(feature = "stream-terminal"))]
     fn unbuffer(self) -> Option<Buffer>;
+    #[cfg(feature = "stream-terminal")]
+    fn unbuffer(self) -> Option<()>;
 }
 
 /// Display prompt, line and cursor in terminal output
@@ -239,6 +242,11 @@ pub use self::unix::*;
 
 #[cfg(any(test, target_arch = "wasm32"))]
 mod test;
+#[cfg(all(feature = "stream-terminal", not(target_arch = "wasm32")))]
+mod stream;
+#[cfg(all(feature = "stream-terminal", not(target_arch = "wasm32"), not(test)))]
+pub use self::stream::*;
+
 #[cfg(any(test, target_arch = "wasm32"))]
 pub use self::test::*;
 

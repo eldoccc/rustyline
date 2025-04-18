@@ -51,7 +51,7 @@ fn check(rc: BOOL) -> io::Result<()> {
     }
 }
 
-fn get_win_size(handle: HANDLE) -> (Unit, Unit) {
+pub(crate) fn get_win_size(handle: HANDLE) -> (Unit, Unit) {
     let mut info = unsafe { mem::zeroed() };
     match unsafe { console::GetConsoleScreenBufferInfo(handle, &mut info) } {
         FALSE => (80, 24),

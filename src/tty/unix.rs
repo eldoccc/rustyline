@@ -39,7 +39,7 @@ const BRACKETED_PASTE_OFF: &str = "\x1b[?2004l";
 
 nix::ioctl_read_bad!(win_size, libc::TIOCGWINSZ, libc::winsize);
 
-fn get_win_size(fd: RawFd) -> (Unit, Unit) {
+pub(crate) fn get_win_size(fd: RawFd) -> (Unit, Unit) {
     use std::mem::zeroed;
 
     if cfg!(test) {
@@ -76,11 +76,11 @@ fn is_a_tty(fd: RawFd) -> bool {
 pub type PosixBuffer = ();
 #[cfg(all(feature = "buffer-redux", not(test)))]
 pub type PosixBuffer = buffer_redux::Buffer;
-#[cfg(not(test))]
+#[cfg(all(not(test),not(feature = "stream-terminal")))]
 pub type Buffer = PosixBuffer;
 
 pub type PosixKeyMap = HashMap<KeyEvent, Cmd>;
-#[cfg(not(test))]
+#[cfg(all(not(test),not(feature = "stream-terminal")))]
 pub type KeyMap = PosixKeyMap;
 
 #[must_use = "You must restore default mode (disable_raw_mode)"]
@@ -91,7 +91,7 @@ pub struct PosixMode {
     raw_mode: Arc<AtomicBool>,
 }
 
-#[cfg(not(test))]
+#[cfg(all(not(test),not(feature = "stream-terminal")))]
 pub type Mode = PosixMode;
 
 impl RawMode for PosixMode {
@@ -880,12 +880,12 @@ impl RawReader for PosixRawReader {
         cmd
     }
 
-    #[cfg(any(not(feature = "buffer-redux"), test))]
+    #[cfg(all(any(not(feature = "buffer-redux"), test),not(feature = "stream-terminal")))]
     fn unbuffer(self) -> Option<PosixBuffer> {
         None
     }
 
-    #[cfg(all(feature = "buffer-redux", not(test)))]
+    #[cfg(all(feature = "buffer-redux", not(test),not(feature = "stream-terminal")))]
     fn unbuffer(self) -> Option<PosixBuffer> {
         let (_, buffer) = self.tty_in.into_inner_with_buffer();
         Some(buffer)
@@ -1285,7 +1285,7 @@ impl Sig {
     }
 }
 
-#[cfg(not(test))]
+#[cfg(all(not(test),not(feature = "stream-terminal")))]
 pub type Terminal = PosixTerminal;
 
 #[derive(Clone, Debug)]
